@@ -229,6 +229,83 @@ fn aligned_fixture_headers_can_be_drained_without_affecting_members() {
     );
 }
 
+#[test]
+fn oversubscribed_huffman_descriptions_wait_for_the_alphabet_like_c() {
+    for repeated in [false, true] {
+        let mut wire = Wire::window(16, false);
+        wire.bits(1, 0); // ISLAST
+        wire.bits(2, 0); // Four length nibbles.
+        wire.bits(16, 0); // One decoded byte.
+        wire.bits(1, 0); // Compressed meta-block.
+        wire.bits(3, 0); // One block type for each stream.
+        wire.bits(6, 0); // NPOSTFIX = NDIRECT = 0.
+        wire.bits(2, 0); // LSB6 context.
+        wire.bits(2, 0); // One literal tree and one distance tree.
+        wire.bits(2, 0); // Complex literal code, no skipped lengths.
+
+        // Code-length alphabet: 0 has length 1; 2 and either 1 or 16
+        // have length 2. The target code oversubscribes without ever
+        // passing through a complete tree, then fills its remaining
+        // alphabet with zero lengths.
+        let other = if repeated { 16 } else { 1 };
+        for symbol in [1, 2, 3, 4, 0, 5, 17, 6, 16] {
+            match symbol {
+                0 => wire.bits(4, 7),
+                2 => wire.bits(3, 3),
+                _ if symbol == other => wire.bits(3, 3),
+                _ => wire.bits(2, 0),
+            }
+            if symbol == 0 && !repeated || symbol == 16 {
+                break;
+            }
+        }
+        let described = if repeated {
+            wire.bits(2, 1); // Length 2.
+            wire.bits(2, 3); // Repeat previous length.
+            wire.bits(2, 1); // Four more length-2 symbols.
+            5
+        } else {
+            for _ in 0..3 {
+                wire.bits(2, 3); // Three length-2 symbols.
+            }
+            wire.bits(2, 1); // One length-1 symbol.
+            4
+        };
+        for _ in described..256 {
+            wire.bits(1, 0);
+        }
+        let compressed = wire.finish();
+        assert_eq!(
+            c_decompress_status(&compressed, 1),
+            Err(google_brotli_ffi::BROTLI_DECODER_ERROR_FORMAT_HUFFMAN_SPACE)
+        );
+        for split in 0..compressed.len() {
+            assert_eq!(
+                c_decompress_status(&compressed[..split], 1),
+                Err(google_brotli_ffi::BROTLI_DECODER_NEEDS_MORE_INPUT),
+                "repeated={repeated}, split={split}"
+            );
+            let mut decoder = Decompressor::new(DecoderConfig::default()).unwrap();
+            let mut session = decoder.start(DecodeStreamConfig::default()).unwrap();
+            let mut output = [0];
+            let progress = session
+                .process(&compressed[..split], &mut output, DecodeOperation::Process)
+                .unwrap_or_else(|error| panic!("repeated={repeated}, split={split}: {error}"));
+            assert_eq!(progress.status, DecoderStatus::NeedsInput);
+            assert_eq!((progress.consumed, progress.produced), (split, 0));
+            let failure = session
+                .process(&compressed[split..], &mut output, DecodeOperation::Process)
+                .unwrap_err();
+            assert!(matches!(
+                failure.error,
+                mbrotli::DecodeError::InvalidData {
+                    kind: mbrotli::InvalidDataKind::Huffman
+                }
+            ));
+        }
+    }
+}
+
 #[cfg(feature = "experimental")]
 #[test]
 fn zero_bit_empty_custom_transform_is_rejected_instead_of_looping() {

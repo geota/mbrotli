@@ -236,6 +236,25 @@ per description, so reading a description allocates nothing and never fills a
 it is complex, since those are the only lengths it may leave unset; both shapes
 clear the per-length symbol lists themselves before filling them.
 
+While reading the target code lengths, zero remaining prefix-code space ends
+the description successfully. Negative space does not end it early: like C
+Brotli's unsigned space counter, the builder continues until the alphabet is
+exhausted, then rejects nonzero space before building any decoding table.
+An incomplete oversubscribed description therefore still requests input.
+Symbol and repeat bounds remain limited by the alphabet (at most 1128 entries).
+
+```mermaid
+flowchart TD
+    Space{Remaining space is zero?} -->|yes| Build[Build valid table]
+    Space -->|no, including negative| End{Alphabet exhausted?}
+    End -->|yes| Reject[Huffman error]
+    End -->|no| Read{Next length available?}
+    Read -->|no| Pause[Request input and retain state]
+    Read -->|yes| Update[Apply bounded symbol or repeat]
+    Update --> Space
+    Pause --> Space
+```
+
 ```mermaid
 classDiagram
     class Code {

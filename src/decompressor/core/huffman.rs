@@ -834,7 +834,10 @@ impl Builder {
                             if *space == 0 {
                                 break Ok(true);
                             }
-                            if *space < 0 || *index == alphabet {
+                            // Match C Brotli: an oversubscribed description
+                            // keeps reading until the alphabet is exhausted.
+                            // Never build a table unless space is exactly zero.
+                            if *index == alphabet {
                                 break Err(InvalidDataKind::Huffman.into());
                             }
                             match table.decode(bits, input) {

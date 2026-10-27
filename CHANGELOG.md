@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Match C Brotli's streaming error timing for oversubscribed Huffman
+  descriptions: wait for the rest of the alphabet before rejecting the code,
+  so incomplete descriptions continue to request input.
+
 - Machine-checked Lean 4 proofs of the distance prefix codes. Charon and
   Aeneas translate `prefix_encode_copy_distance`, `DistanceParams::new`,
   `log2_floor_non_zero` and the decoder's distance layout into Lean
